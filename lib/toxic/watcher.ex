@@ -15,7 +15,15 @@ defmodule Toxic.Watcher do
 
   end
 
-  def listen_to_topic(topic) do
+  def handshake() do
+
+  end
+
+  def subscribe() do
+
+  end
+
+  def connect() do
 
   end
 
