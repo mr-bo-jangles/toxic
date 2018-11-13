@@ -1,36 +1,32 @@
 defmodule Toxic.Storage do
-  @moduledoc "Acts as the storage backend for the service. Holds items results from the watcher that are ready to be sent out"
+  @moduledoc false
 
-  use Agent
+  use GenServer
 
-  @doc """
-  Starts a new bucket.
-  """
-  def start_link(_opts) do
-    Agent.start_link(fn -> %{} end)
+  def start_link(default) when is_list(default) do
+    GenServer.start_link(__MODULE__, default)
   end
 
-  @doc """
-  Gets a value from the `bucket` by `key`.
-  """
-  def get(bucket, key) do
-    Agent.get(bucket, &Map.get(&1, key))
+  def push(pid, item) do
+    GenServer.cast(pid, {:push, item})
   end
 
-    @doc """
-  Puts the `value` for the given `key` in the `bucket`.
-  """
-  def put(bucket, key, value) do
-    Agent.update(__MODULE__, &Map.put(&1, key, value))
+  def pop(pid) do
+    GenServer.call(pid, :pop)
   end
 
-    @doc """
-  Deletes `key` from `bucket`.
-
-  Returns the current value of `key`, if `key` exists.
-  """
-  def delete(bucket, key) do
-    Agent.get_and_update(bucket, &Map.pop(&1, key))
+  @impl true
+  def init(stack) do
+    {:ok, stack}
   end
 
+  @impl true
+  def handle_call(:pop, _from, [head | tail]) do
+    {:reply, head, tail}
+  end
+
+  @impl true
+  def handle_cast({:push, item}, state) do
+    {:noreply, [item | state]}
+  end
 end

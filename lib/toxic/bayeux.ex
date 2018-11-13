@@ -3,32 +3,37 @@ defmodule Toxic.Bayeux do
 
   defstruct [
     :client,
-
   ]
 
   def get_oauth_client() do
-    client = OAuth2.Client.new([
-      strategy: OAuth2.Strategy.ClientCredentials,
-      client_id: "client_id",
-      client_secret: "abc123",
-      site: "https://auth.example.com"
-    ])
+    client = OAuth2.Client.new(
+      [
+        strategy: OAuth2.Strategy.ClientCredentials,
+        client_id: "client_id",
+        client_secret: "abc123",
+        site: "https://eu2.salesforce.com/cometd/44.0/"
+      ]
+    )
     OAuth2.Client.get_token!(client)
   end
 
   def refresh_oauth_client(client) do
     refresh_token = client.token.refresh_token
-    client = OAuth2.Client.new([
-      strategy: OAuth2.Strategy.Refresh,
-      client_id: "client_id",
-      client_secret: "abc123",
-      site: "https://auth.example.com",
-      params: %{"refresh_token" => refresh_token}
-    ])
+    client = OAuth2.Client.new(
+      [
+        strategy: OAuth2.Strategy.Refresh,
+        client_id: "client_id",
+        client_secret: "abc123",
+        site: "https://auth.example.com",
+        params: %{
+          "refresh_token" => refresh_token
+        }
+      ]
+    )
     OAuth2.Client.get_token!(client)
   end
 
-  def connect(initial \\ False) do
+  def connect(initial \\ False, connect_timeout \\ 30) do
     connect_request_payload = %{
       # MUST
       'channel': '/meta/connect',
@@ -52,9 +57,11 @@ defmodule Toxic.Bayeux do
   end
 
   def send_message(client, payload, timeout \\ 30) do
+    id = 1
+    clientId = 1
     Map.update(payload, id, 0, &(&1 + 1))
     Map.update(payload, clientId, "", "") # Work out where to get clientID from
-    client.post!(url=endpoint, body=payload)
+    client.post!(url = client.endpoint, body = payload)
   end
 
   #
@@ -106,13 +113,15 @@ defmodule Toxic.Bayeux do
   end
 
   def disconnect do
-    disconnect_response = send_message(%{
+    disconnect_response = send_message(
+      %{
         # MUST
         'channel': '/meta/disconnect',
         'clientId': None,
         # MAY
         'id': None
-    })
+      }
+    )
     #        self.disconnect_complete = True
     #        return disconnect_response
   end
@@ -150,7 +159,7 @@ defmodule Toxic.Bayeux do
     #        return response.json()
   end
 
-  def handshake do
+  def handshake(client) do
     message_counter = 1
 
     handshake_payload = %{
@@ -163,7 +172,17 @@ defmodule Toxic.Bayeux do
       'minimumVersion': '1.0'
     }
     #        handshake_payload.update(kwargs)
-    handshake_response = send_message(handshake_payload)
+    handshake_response = send_message(client, handshake_payload)
+
+    [client_details | body] = handshake_response
+
+    Map.update!(client, :clientId, &(client_details.clientId))
+
+    initial_connect_response = connect(initial=true)
+
+    {:ok, client}
+
+
     #
     #        # TODO: No error checking here
     #        self.client_id = handshake_response[0]['clientId']
@@ -181,7 +200,7 @@ defmodule Toxic.Bayeux do
   end
 
   def add_to_publish_queue(channel, payload) do
-    publication_queue.put(
+    Toxic.OutboundQueue.cast(
       %{
         channel: channel,
         payload: payload
