@@ -1,20 +1,24 @@
 defmodule Toxic.Bayeux do
   @moduledoc false
 
-  defstruct [
-    :client,
-  ]
+  require Logger
 
   def get_oauth_client() do
     client = OAuth2.Client.new(
       [
-        strategy: OAuth2.Strategy.ClientCredentials,
-        client_id: "client_id",
-        client_secret: "abc123",
-        site: "https://eu2.salesforce.com/cometd/44.0/"
+        strategy: OAuth2.Strategy.Password,
+        client_id: "3MVG9fTLmJ60pJ5Jh7TmZ7oIJQJg5xyDO99G27lmZj3Mr8VBpxz3QoOEJfLBZuMs41YgCIM6SeqBO0JbmrUR3",
+        client_secret: "4535134718594294726",
+        username: "josh+salesforce@peatfirestudios.com",
+        password: "h5T&5IC0RBOA",
+        site: "https://eu16.salesforce.com",
+        authorize_url: "https://login.salesforce.com/services/oauth2/authorize",
+        token_url: "https://login.salesforce.com/services/oauth2/token",
       ]
     )
-    OAuth2.Client.get_token!(client)
+    client = OAuth2.Client.put_header(client, "accept", "application/json")
+    client = OAuth2.Client.get_token!(client, [username: "josh+salesforce@peatfirestudios.com", password: "h5T&5IC0RBOA"])
+    {:ok, client}
   end
 
   def refresh_oauth_client(client) do
@@ -22,15 +26,16 @@ defmodule Toxic.Bayeux do
     client = OAuth2.Client.new(
       [
         strategy: OAuth2.Strategy.Refresh,
-        client_id: "client_id",
-        client_secret: "abc123",
-        site: "https://auth.example.com",
+        client_id: "3MVG9fTLmJ60pJ5Jh7TmZ7oIJQJg5xyDO99G27lmZj3Mr8VBpxz3QoOEJfLBZuMs41YgCIM6SeqBO0JbmrUR3",
+        client_secret: "4535134718594294726",
+        site: "https://eu16.salesforce.com/cometd/44.0/",
         params: %{
           "refresh_token" => refresh_token
         }
       ]
     )
-    OAuth2.Client.get_token!(client)
+    client = OAuth2.Client.get_token!(client)
+    {:ok, client}
   end
 
   def connect(initial \\ False, connect_timeout \\ 30) do
@@ -50,10 +55,11 @@ defmodule Toxic.Bayeux do
         connect_timeout
     end
 
-    send_message(
+    response = send_message(
       connect_request_payload,
       timeout = timeout
     )
+
   end
 
   def send_message(client, payload, timeout \\ 30) do
@@ -61,7 +67,8 @@ defmodule Toxic.Bayeux do
     clientId = 1
     Map.update(payload, id, 0, &(&1 + 1))
     Map.update(payload, clientId, "", "") # Work out where to get clientID from
-    client.post!(url = client.endpoint, body = payload)
+    response = client.post!(url = client.endpoint, body = payload)
+    {:ok, response}
   end
 
   #
@@ -176,9 +183,15 @@ defmodule Toxic.Bayeux do
 
     [client_details | body] = handshake_response
 
-    Map.update!(client, :clientId, &(client_details.clientId))
+    Map.update!(client, :clientId, Map.get(client_details, :clientId))
 
-    initial_connect_response = connect(initial=true)
+    case connect(initial=true) do
+      {:ok, value} ->
+        advised_timeout = get_in(value, [:advice, :timeout])
+        client = %{client| timeout: advised_timeout / 1000 }
+      _ ->
+        Logger.error("Error connecting to the endpoint")
+    end
 
     {:ok, client}
 
@@ -200,7 +213,9 @@ defmodule Toxic.Bayeux do
   end
 
   def add_to_publish_queue(channel, payload) do
-    Toxic.OutboundQueue.cast(
+    Logger.info("enqueueing publication of #{payload} to channel #{channel}")
+    GenServer.cast(
+      :outbound_queue,
       %{
         channel: channel,
         payload: payload
@@ -217,6 +232,14 @@ defmodule Toxic.Bayeux do
     #        subscription
     #    ))
     #    self.unsubscription_queue.put(subscription)
+    Logger.info("enqueueing unsubscription for channel #{channel}")
+    GenServer.cast(
+      :outbound_queue,
+      %{
+        channel: "/meta/unsubscribe",
+        subscription: channel
+      }
+    )
   end
 
   def unsub_task do

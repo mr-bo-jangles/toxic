@@ -12,15 +12,18 @@ defmodule Toxic do
     children = [
       %{
         id: OutboundQueue,
-        start: { Toxic.Storage, :start_link, [[]] }
+        start: { Toxic.Storage, :start_link, [[]] },
+        name: {:global, :outbound_queue}
       },
       %{
         id: InboundQueue,
-        start: { Toxic.Storage, :start_link, [[]] }
+        start: { Toxic.Storage, :start_link, [[]] },
+        name: {:global, :inbound_queue}
       },
       %{
         id: Watcher,
-        start: { Toxic.Watcher, :start_link, [%{outbound: OutboundQueue, inbound: InboundQueue}]}
+        start: { Toxic.Watcher, :start_link, [%{outbound: OutboundQueue, inbound: InboundQueue}]},
+        name: {:global, Watcher}
       }
     ]
     opts = [strategy: :one_for_one, name: Toxic]
