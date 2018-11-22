@@ -1,5 +1,6 @@
 defmodule Toxic do
   use Application
+
   @moduledoc """
   Documentation for Toxic.
   """
@@ -12,25 +13,33 @@ defmodule Toxic do
     children = [
       %{
         id: OutboundQueue,
-        start: { Toxic.Storage, :start_link, [[]] },
+        start: {Toxic.Storage, :start_link, [[]]},
         name: {:global, :outbound_queue}
       },
       %{
         id: InboundQueue,
-        start: { Toxic.Storage, :start_link, [[]] },
+        start: {Toxic.Storage, :start_link, [[]]},
         name: {:global, :inbound_queue}
       },
       %{
         id: Watcher,
-        start: { Toxic.Watcher, :start_link, [%{outbound: OutboundQueue, inbound: InboundQueue}]},
+        start: {Toxic.Watcher, :start_link, [%{outbound: OutboundQueue, inbound: InboundQueue}]},
         name: {:global, Watcher}
+      },
+      %{
+        id: PollingPool,
+        start:
+          {:hackney_pool, :child_spec, [:polling_pool, [timeout: 15000, max_connections: 100]]}
       }
     ]
+
     opts = [strategy: :one_for_one, name: Toxic]
+
     case Supervisor.start_link(children, opts) do
       {:ok, _} = ok ->
         Logger.info("Starting Toxic")
         ok
+
       error ->
         Logger.error("Error starting Toxic")
         error

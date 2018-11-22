@@ -33,32 +33,28 @@ defmodule Toxic.Watcher do
   @impl true
   def handle_info(:check, state) do
     # Do the desired work here
-    schedule_check() # Reschedule once more
+    # Reschedule once more
+    schedule_check()
     {:noreply, state}
   end
 
   defp schedule_check() do
-    Process.send_after(self(), :check, 2 * 60 * 60 * 1000) # In 2 hours
+    # In 2 hours
+    Process.send_after(self(), :check, 2 * 60 * 60 * 1000)
   end
 
   def get_auth(topic) do
-
   end
 
   def get_endpoint(topic) do
-
   end
 
   def handshake() do
-
   end
 
   def subscribe() do
-
   end
 
   def connect() do
-
   end
-
 end

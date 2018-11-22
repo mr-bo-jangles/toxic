@@ -1,5 +1,4 @@
 defmodule Toxic.Config do
-
   @moduledoc "Acts as the configuration store for the service. Holds the details for each api translation"
   use Agent
 
@@ -13,7 +12,7 @@ defmodule Toxic.Config do
             dest_password: ""
 
   def start_link(_) do
-    Agent.start_link(fn -> MapSet.new end, name: __MODULE__)
+    Agent.start_link(fn -> MapSet.new() end, name: __MODULE__)
   end
 
   @doc "Adds a mapping of origin to destination"
@@ -35,11 +34,11 @@ defmodule Toxic.Config do
       dest_username: dest_username,
       dest_password: dest_password
     }
+
     Agent.update(__MODULE__, &MapSet.put(&1, item))
   end
 
   def get_mappings do
-    Agent.get(__MODULE__, &(&1))
+    Agent.get(__MODULE__, & &1)
   end
-
 end
