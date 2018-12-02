@@ -33,6 +33,7 @@ defmodule Toxic.Watcher do
   @impl true
   def handle_info(:check, state) do
     # Do the desired work here
+
     # Reschedule once more
     schedule_check()
     {:noreply, state}

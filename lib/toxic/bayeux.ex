@@ -1,17 +1,27 @@
 defmodule Toxic.Bayeux do
   @moduledoc false
 
+  defimpl Poison.Encoder, for: Tuple do
+  def encode(tuple, options) do
+    tuple
+    |> Tuple.to_list
+    |> Poison.encode!
+  end
+end
+
   require Logger
 
   def get_oauth_client() do
+    username = "josh+salesforce2@peatfirestudios.com"
+    password = "fX8$r4J16GyymF!k"
     client =
       OAuth2.Client.new(
         strategy: OAuth2.Strategy.Password,
         client_id:
-          "3MVG9fTLmJ60pJ5Jh7TmZ7oIJQJg5xyDO99G27lmZj3Mr8VBpxz3QoOEJfLBZuMs41YgCIM6SeqBO0JbmrUR3",
-        client_secret: "4535134718594294726",
-        username: "josh+salesforce@peatfirestudios.com",
-        password: "h5T&5IC0RBOA",
+          "3MVG9fTLmJ60pJ5LiXLd.IzjCRJdgGvKKWWNpTL3A_swdGE7JZLH8L9mxhK2lr17_BjEp9E5oxHkxqlxciWUz",
+        client_secret: "5312996714384606617",
+        username: username,
+        password: password,
         site: "https://eu16.salesforce.com/cometd/44.0/",
         authorize_url: "https://login.salesforce.com/services/oauth2/authorize",
         token_url: "https://login.salesforce.com/services/oauth2/token"
@@ -22,8 +32,8 @@ defmodule Toxic.Bayeux do
     client =
       OAuth2.Client.get_token!(
         client,
-        username: "josh+salesforce@peatfirestudios.com",
-        password: "h5T&5IC0RBOA"
+        username: username,
+        password: password
       )
 
     {:ok, client}
@@ -36,8 +46,8 @@ defmodule Toxic.Bayeux do
       OAuth2.Client.new(
         strategy: OAuth2.Strategy.Refresh,
         client_id:
-          "3MVG9fTLmJ60pJ5Jh7TmZ7oIJQJg5xyDO99G27lmZj3Mr8VBpxz3QoOEJfLBZuMs41YgCIM6SeqBO0JbmrUR3",
-        client_secret: "4535134718594294726",
+          "3MVG9fTLmJ60pJ5LiXLd.IzjCRJdgGvKKWWNpTL3A_swdGE7JZLH8L9mxhK2lr17_BjEp9E5oxHkxqlxciWUz",
+        client_secret: "5312996714384606617",
         site: "https://eu16.salesforce.com/cometd/44.0/",
         params: %{
           "refresh_token" => refresh_token
@@ -48,7 +58,15 @@ defmodule Toxic.Bayeux do
     {:ok, client}
   end
 
-  def connect(client, initial \\ False, connect_timeout \\ 30) do
+  def filter_events(response) do
+    Enum.filter(response, fn x -> match?(Toxic.Bayeux.Event, x) end)
+  end
+
+  def filter_info(response) do
+    Enum.filter(response, fn x -> match?(Toxic.Bayeux.Connect, x) end)
+  end
+
+  def connect(client, initial \\ true, connect_timeout \\ 110000) do
     connect_request_payload = %{
       # MUST
       channel: "/meta/connect",
@@ -56,29 +74,27 @@ defmodule Toxic.Bayeux do
       clientId: client.clientId
     }
 
-    IO.inspect(connect_request_payload)
+    Logger.debug("Connect Payload: #{Poison.encode!(connect_request_payload)}")
 
-    timeout =
-      cond do
-        initial == true ->
-          None
+    {response, client} = send_message(client, connect_request_payload, connect_timeout)
 
-        true ->
-          connect_timeout
-      end
+    parsed_response = Poison.decode!(response.body, as: [%Toxic.Bayeux.Event{data: %Toxic.Bayeux.Event.Data{event: %Toxic.Bayeux.Event.Data.Event{}, sobject: %Toxic.Bayeux.Event.Data.SObject{}}}, %Toxic.Bayeux.Connect{}])
 
-    {response, client} = send_message(client = client, payload = connect_request_payload)
+    Logger.debug("Response Body: #{response.body}")
 
-    [parsed_response] = Poison.decode!(response.body, as: [%Toxic.Bayeux.Connect{}])
+    events = filter_events(parsed_response)
+    info = filter_info(parsed_response)
 
-    IO.inspect(parsed_response)
+    queue_process = Process.get(:inbound_queue)
 
-    {:ok, client}
+    Enum.map(events, fn (event) -> queue_process.push(event) end)
+
+    connect(client, false, connect_timeout)
   end
 
   def update_client_cookies(client, http_response) do
     cookies = Enum.filter(http_response.headers, fn {key, _} -> String.match?(key, ~r/\Aset-cookie\z/i) end)
-    IO.inspect(cookies)
+    Logger.debug("Cookies (pre-update): #{Poison.encode!(cookies)}")
     cookies = Enum.map(
       cookies,
       fn(value) ->
@@ -87,14 +103,14 @@ defmodule Toxic.Bayeux do
         |> List.first
       end
     )
-    IO.inspect(cookies)
+    Logger.debug("Cookies (post-update): #{Poison.encode!(cookies)}")
 
     client = Map.update(client, :cookies, cookies, fn(_) -> cookies end)
 
     {:ok, client }
   end
 
-  def send_message(client, payload, timeout \\ 30) do
+  def send_message(client, payload, timeout \\ 3000) do
     client =
       Map.update(
         client,
@@ -113,9 +129,9 @@ defmodule Toxic.Bayeux do
         end
       )
 
-    IO.inspect(payload)
-    IO.inspect(client)
     payload = Poison.encode!([payload])
+    Logger.debug("Client: #{Poison.encode!(client)}")
+    Logger.debug("Payload: #{payload}")
     access_token = client.token.access_token
 
     headers = [
@@ -123,18 +139,27 @@ defmodule Toxic.Bayeux do
       {"Content-Type", "application/json"}
     ]
 
-    response = HTTPoison.post!(
+
+    response = case HTTPoison.post(
       client.site,
       payload,
       headers,
       [
         hackney: [
           cookie: Map.get(client, :cookies, [])
-        ]
+        ],
+        recv_timeout: timeout
       ]
-    )
+    ) do
+      {:ok, response} ->
+        response
+      {:error, %HTTPoison.Error{id: _, reason: :timeout}} ->
+        Logger.info("Request timed out")
+        %{body: "[#{Poison.encode!(payload)}]"}
+    end
 
-    IO.inspect(response)
+
+    Logger.debug("Response: #{Poison.encode!(response)}")
 
     { response, client }
   end
@@ -199,12 +224,10 @@ defmodule Toxic.Bayeux do
       )
 
     #        self.disconnect_complete = True
-    #        return disconnect_response
+    {:ok, client}
   end
 
   def handshake(client) do
-    message_counter = 1
-
     handshake_payload = %{
       channel: "/meta/handshake",
       supportedConnectionTypes: ["long-polling"],
@@ -218,7 +241,7 @@ defmodule Toxic.Bayeux do
 
     [parsed_response] = Poison.decode!(handshake_response.body, as: [%Toxic.Bayeux.Handshake{}])
 
-    IO.inspect(parsed_response)
+    Logger.debug("Response Body: #{handshake_response.body}")
 
     client =
       Map.update(client, :clientId, parsed_response.clientId, fn _ -> parsed_response.clientId end)
@@ -230,14 +253,14 @@ defmodule Toxic.Bayeux do
     subscribe_payload = %{
       channel: "/meta/subscribe",
       clientId: client.clientId,
-      subscription: "Product"
+      subscription: "/topic/#{channel}"
     }
 
     { handshake_response, client } = send_message(client, subscribe_payload)
 
     [parsed_response] = Poison.decode!(handshake_response.body, as: [%Toxic.Bayeux.Subscribe{}])
 
-    IO.inspect(parsed_response)
+    Logger.debug("Response Body: #{handshake_response.body}")
 
     {:ok, client}
   end

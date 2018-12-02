@@ -52,6 +52,7 @@
     <orderEntry type="library" name="mimic" level="project" />
     <orderEntry type="library" name="httparrot" level="project" />
     <orderEntry type="library" name="earmark" level="project" />
+    <orderEntry type="library" name="Elixir 1.7.3" level="application" />
   </component>
   <component name="TestRunnerService">
     <option name="projectConfiguration" value="Twisted Trial" />
